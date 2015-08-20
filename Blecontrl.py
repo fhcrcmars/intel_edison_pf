@@ -15,9 +15,14 @@ DEBUG = False
 # NOTE: Python's struct.pack() will add padding bytes unless you make the endianness explicit. Little endian
 # should be used for BLE. Always start a struct.pack() format string with "<"
 
+
 import os
 import sys
+import time
+import Queue
 import struct
+import threading
+import subprocess
 import bluetooth._bluetooth as bluez
 
 LE_META_EVENT = 0x3e
@@ -45,6 +50,10 @@ ADV_SCAN_IND=0x02
 ADV_NONCONN_IND=0x03
 ADV_SCAN_RSP=0x04
 
+DEV_ID = 0
+ADV_TIME = 0.1
+SCAN_TIME = 0.9
+SYS_TIME = 0
 
 def returnnumberpacket(pkt):
 	myInteger = 0
@@ -110,7 +119,20 @@ def hci_le_set_scan_parameters(sock):
 	OWN_TYPE = SCAN_RANDOM
 	SCAN_TYPE = 0x01
 
+def init_ble():
 
+	try:
+		sock = bluez.hci_open_dev(DEV_ID)
+		print "ble thread started"
+	except:
+		print "error accessing bluetooth device..."
+		sys.exit(1)
+
+	hci_le_set_scan_parameters(sock)
+	hci_enable_le_scan(sock)
+
+	return sock
+	
 def extract_beacon_data(pkt):
 	report_pkt_offset = 0
 	
@@ -122,7 +144,6 @@ def extract_beacon_data(pkt):
 		print "\tMINOR: ", printpacket(pkt[report_pkt_offset -4: report_pkt_offset - 2])
 		print "\tMAC address: ", packed_bdaddr_to_string(pkt[report_pkt_offset + 3:report_pkt_offset + 9])
 		# commented out - don't know what this byte is.  It's NOT TXPower
-		print "\tDevice Name: ", printpacket(pkt[report_pkt_offset - 5: report_pkt_offset - 3])
 		txpower, = struct.unpack("b", pkt[report_pkt_offset - 2])
 		print "\tTXpower(Unknown):", txpower
 		
@@ -189,7 +210,43 @@ def extract_device_data(pkt):
 	
 	return Adstring
 
-def parse_events(sock, loop_count=100):
+def parse_events(PKT_QUEUE):
+		
+	pkt = PKT_QUEUE.get()
+	ptype, event, plen = struct.unpack("BBB", pkt[:3])
+	#print "--------------"
+	
+	Adstring = ""
+	
+	if event == bluez.EVT_INQUIRY_RESULT_WITH_RSSI:
+		i =0
+	elif event == bluez.EVT_NUM_COMP_PKTS:
+		i =0 
+	elif event == bluez.EVT_DISCONN_COMPLETE:
+		i =0 
+	elif event == LE_META_EVENT:
+		subevent, = struct.unpack("B", pkt[3])
+		pkt = pkt[4:]
+		if subevent == EVT_LE_CONN_COMPLETE:
+			le_handle_connection_complete(pkt)
+		elif subevent == EVT_LE_ADVERTISING_REPORT:
+			#print "advertising report"
+			num_reports = struct.unpack("B", pkt[0])[0]
+			
+			for i in range(0, num_reports):
+
+				#print "fullpacket: ", printpacket(pkt)
+				name = returnstringpacket( pkt[12:-22]).decode('hex')
+				#print name
+				if ( name == "User" ):
+					Adstring = extract_device_data(pkt)
+				else:
+					Adstring = extract_beacon_data(pkt)
+
+	return Adstring.split(",")
+
+def ble_scan(sock):
+
 	old_filter = sock.getsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, 14)
 	
 	# perform a device inquiry on bluetooth device #0
@@ -200,41 +257,41 @@ def parse_events(sock, loop_count=100):
 	bluez.hci_filter_all_events(flt)
 	bluez.hci_filter_set_ptype(flt, bluez.HCI_EVENT_PKT)
 	sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, flt )
-	done = False
-	results = []
-	myFullList = []
-	for i in range(0, loop_count):
-		pkt = sock.recv(255)
-		ptype, event, plen = struct.unpack("BBB", pkt[:3])
-		#print "--------------" 
-		if event == bluez.EVT_INQUIRY_RESULT_WITH_RSSI:
-			i =0
-		elif event == bluez.EVT_NUM_COMP_PKTS:
-			i =0 
-		elif event == bluez.EVT_DISCONN_COMPLETE:
-			i =0 
-		elif event == LE_META_EVENT:
-			subevent, = struct.unpack("B", pkt[3])
-			pkt = pkt[4:]
-			if subevent == EVT_LE_CONN_COMPLETE:
-				le_handle_connection_complete(pkt)
-			elif subevent == EVT_LE_ADVERTISING_REPORT:
-				#print "advertising report"
-				num_reports = struct.unpack("B", pkt[0])[0]
-				
-				for i in range(0, num_reports):
+	
+	sock.settimeout(SCAN_TIME)
+	
+	PKT_QUEUE = Queue.Queue()
 
-					#print "fullpacket: ", printpacket(pkt)
-					
-					if ( pkt[9] == '\x1e' ):
-						Adstring = extract_beacon_data(pkt)
-					else:
-						Adstring = extract_device_data(pkt)
-					
-
-					#print "\tAdstring=", Adstring
-					myFullList.append(Adstring)
-				done = True
+	SYS_TIME = time.time()
+	cur_time = time.time()
+		
+	while 1:
+		#print ( cur_time - SYS_TIME )
+		if ( cur_time - SYS_TIME >= SCAN_TIME ):
+			break
+		try:
+			pkt = sock.recv(255)
+			#print "\tfullpacket: ", printpacket(pkt)
+			PKT_QUEUE.put(pkt)
+			#print ble_data
+			cur_time = time.time()
+		except:
+			break
+			
 	sock.setsockopt( bluez.SOL_HCI, bluez.HCI_FILTER, old_filter )
-	return myFullList
+		
+	return PKT_QUEUE
+
+def ble_adv():
+	subprocess.Popen("hcitool -i hci0 cmd 0x08 0x0008 1e 02 01 1a 1a ff 4c 00 02 15 e2 c5 6d b5 df fb 48 d2 b0 60 d0 f5 a7 10 96 e0 00 00 00 00 c5 00 00 00 00 00 00 00 00 00 00 00 00 00",shell=True)
+	proc = subprocess.Popen(["hciconfig", "hci0", "leadv", "0"])
+	t = threading.Timer(ADV_TIME, adv_undo, [proc])
+	t.start()
+	t.join()
+	
+	
+def adv_undo( p ):
+	subprocess.Popen(["hciconfig", "hci0", "noleadv"])
+
+
 	
