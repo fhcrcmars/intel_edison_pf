@@ -282,8 +282,36 @@ def ble_scan(sock):
 		
 	return PKT_QUEUE
 
-def ble_adv():
-	subprocess.Popen("hcitool -i hci0 cmd 0x08 0x0008 1e 02 01 1a 1a ff 4c 00 02 15 e2 c5 6d b5 df fb 48 d2 b0 60 d0 f5 a7 10 96 e0 00 00 00 00 c5 00 00 00 00 00 00 00 00 00 00 00 00 00",shell=True)
+def ble_adv(name,cx,cy,stdev,floor,tvalue):
+
+	packet = "0x08 0x0008 1b 06 09"
+	print "init packet: "+packet
+	
+	nameHexStr = name.encode("hex")
+	cxHexStr = float_to_hex(cx)
+	cyHexStr = float_to_hex(cy)
+	stdevHexStr = float_to_hex(stdev)
+	floorHexStr = format(floor, '#06x')
+	tvalueHexStr = format(tvalue, '#06x')
+	
+	print "name: "+nameHexStr+" cx: "+cxHexStr+" cy: "+cyHexStr+" std: "+stdevHexStr+" floor: "+floorHexStr+" tValue: "+tvalueHexStr
+	
+	packet = packet + " " + nameHexStr[0:2] + " " + nameHexStr[2:4] + " " + nameHexStr[4:6] + " " + nameHexStr[6:8] + " " + nameHexStr[8:]
+	packet = packet + " 13 ff 00 00"
+	packet = packet + " " + cxHexStr[-2:] + " " + cxHexStr[-4:-2] + " " + cxHexStr[-6:-4] + " " + cxHexStr[-8:-6]
+	packet = packet + " " + cyHexStr[-2:] + " " + cyHexStr[-4:-2] + " " + cyHexStr[-6:-4] + " " + cyHexStr[-8:-6]
+	packet = packet + " " + stdevHexStr[-2:] + " " + stdevHexStr[-4:-2] + " " + stdevHexStr[-6:-4] + " " + stdevHexStr[-8:-6]
+	packet = packet + " " + floorHexStr[-2:] + " " + floorHexStr[-4:-2]
+	packet = packet + " " + tvalueHexStr[-2:] + " " + tvalueHexStr[-4:-2]
+	
+	print packet
+	
+	command = "hcitool -i hci0 cmd " + packet
+	
+	print command
+	
+	#subprocess.Popen("hcitool -i hci0 cmd 0x08 0x0008 1e 02 01 1a 1a ff 4c 00 02 15 e2 c5 6d b5 df fb 48 d2 b0 60 d0 f5 a7 10 96 e0 00 00 00 00 c5 00 00 00 00 00 00 00 00 00 00 00 00 00",shell=True)
+	subprocess.Popen(command,shell=True)
 	proc = subprocess.Popen(["hciconfig", "hci0", "leadv", "0"])
 	t = threading.Timer(ADV_TIME, adv_undo, [proc])
 	t.start()
@@ -292,6 +320,9 @@ def ble_adv():
 	
 def adv_undo( p ):
 	subprocess.Popen(["hciconfig", "hci0", "noleadv"])
+
+def float_to_hex(f):
+		return hex(struct.unpack('<I', struct.pack('<f', f))[0])
 
 
 	

@@ -11,6 +11,7 @@ class Ble:
 		self.l_device = []
 		self.l_beacon = []
 		self.sock = Blecontrl.init_ble()
+		self.name = "User9"
 
 	def BleConfig(self):
 		print "Configuring..."
@@ -42,9 +43,9 @@ class Ble:
 		#print '\n\t'.join([repr(x) for x in l_beacon])
 		return len(self.l_beacon)+len(self.l_device)
 	
-	def BleAdvertise(self):
+	def BleAdvertise(self,cx,cy,stdev,floor,tvalue):
 		print "Advertising..."
-		Blecontrl.ble_adv()
+		Blecontrl.ble_adv(self.name,cx,cy,stdev,floor,tvalue)
 		print "Advertise Finish"
 
 	def getDevicePktList(self):
@@ -56,11 +57,12 @@ class Ble:
 	def resetPktList(self):
 		del self.l_device[:]
 		del self.l_beacon[:]
+
 #-----------------------------------------------		
 	def getDeviceRssiByName(self,name):
 		rssi = "1"
 		for device in self.l_device:
-			print device[0]
+			#print device[0]
 			if name == device[0]:
 				rssi = device[6]
 				break
@@ -69,7 +71,7 @@ class Ble:
 	def getBeaconRssiByMac(self,mac):
 		rssi = "1"
 		for device in self.l_device:
-			print device[0]
+			#print device[0]
 			if mac == device[0]:
 				rssi = device[5]
 				break
@@ -82,7 +84,7 @@ class Ble:
 		floor = "-1"
 		trustVelue = "-1"
 		for device in self.l_device:
-			print device[0]
+			#print device[0]
 			if name == device[0]:
 				x = device[1]
 				y = device[2]
